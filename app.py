@@ -1,63 +1,85 @@
 import streamlit as st
-import sqlite3
-import pandas as pd
+from logic import AdmissionLogic
+import re
 
-st.set_page_config(page_title="성적 분석 시스템", layout="centered") # 가독성을 위해 화면 중앙 정렬
+st.set_page_config(page_title="Find My University", layout="wide")
 
-st.title("🎓 성적 입력 및 분석")
-st.info("각 과목의 성적을 위에서 아래 순서대로 입력해 주세요.")
+@st.cache_resource
+def load_engine():
+    return AdmissionLogic('univ_data.db')
 
-# --- 1. 기본 정보 섹션 ---
-with st.expander("📅 시험 정보 설정", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    year = c1.selectbox("년도", ["2026", "2025"], index=0)
-    grade = c2.selectbox("학년", ["고1", "고2", "고3"], index=0)
-    month = c3.selectbox("회차/월", ["3월", "6월", "9월", "수능"], index=0)
+engine = load_engine()
 
-st.markdown("---")
+st.title("🎓 대입 정시 환산점수 계산기 (표점/백분위/등급 완벽대응)")
 
-# --- 2. 과목별 입력 섹션 (위아래 배열) ---
-# 반복되는 입력 구조를 함수로 만들어 코드를 깔끔하게 관리합니다.
-def score_input(subject_name, has_std=True):
-    st.markdown(f"### 📘 {subject_name}")
-    cols = st.columns(3)
-    if has_std:
-        std = cols[0].number_input(f"{subject_name} 표준점수", value=0, key=f"{subject_name}_s")
-        pct = cols[1].number_input(f"{subject_name} 백분위", value=0, key=f"{subject_name}_p")
-        rank = cols[2].number_input(f"{subject_name} 등급", value=1, key=f"{subject_name}_r")
-        return std, pct, rank
-    else:
-        rank = cols[0].number_input(f"{subject_name} 등급", value=1, key=f"{subject_name}_r")
-        return None, None, rank
+# --- 좌측 사이드바: 학년도 선택 ---
+with st.sidebar:
+    st.header("📅 입시 학년도")
+    selection = st.selectbox("선택", ["2026학년도 정시", "2025학년도 정시"], index=0)
+    year_match = re.findall(r'\d+', selection)[0][-2:]
+    target_table = f"T_{year_match}정시"
+    st.divider()
 
-# 위에서 아래로 과목 나열
-k_s, k_p, k_r = score_input("국어")
-m_s, m_p, m_r = score_input("수학")
-_, _, e_r = score_input("영어", has_std=False)
-_, _, h_r = score_input("한국사", has_std=False)
+# --- 메인 상단: 성적 입력 (가로 배치) ---
+st.subheader("📝 수능 성적 입력")
 
-# 탐구 과목 (과목명 입력 포함)
-st.markdown("### 🔬 탐구 영역")
-t1_col, t2_col = st.columns(2)
-with t1_col:
-    t1_name = st.text_input("탐구1 과목명", value="사회탐구")
-    t1_s = st.number_input("탐구1 표준점수", value=0)
-    t1_p = st.number_input("탐구1 백분위", value=0)
-    t1_r = st.number_input("탐구1 등급", value=1)
-with t2_col:
-    t2_name = st.text_input("탐구2 과목명", value="과학탐구")
-    t2_s = st.number_input("탐구2 표준점수 ", value=0)
-    t2_p = st.number_input("탐구2 백분위 ", value=0)
-    t2_r = st.number_input("탐구2 등급 ", value=1)
+def score_row(label, key_prefix):
+    cols = st.columns([1, 2, 2, 2])
+    with cols[0]: st.markdown(f"**{label}**")
+    with cols[1]: std = st.number_input("표준점수", 0, 200, 130, key=f"{key_prefix}_s")
+    with cols[2]: pct = st.number_input("백분위", 0, 100, 95, key=f"{key_prefix}_p")
+    with cols[3]: grd = st.selectbox("등급", list(range(1, 10)), index=0, key=f"{key_prefix}_g")
+    return std, pct, grd
 
-st.markdown("---")
+# 1. 표점/백분위/등급 모두 필요한 과목들
+kor_s, kor_p, kor_g = score_row("국어", "kor")
+mat_s, mat_p, mat_g = score_row("수학", "mat")
+inq1_s, inq1_p, inq1_g = score_row("탐구1", "inq1")
+inq2_s, inq2_p, inq2_g = score_row("탐구2", "inq2")
+for_s, for_p, for_g = score_row("제2외국어", "for")
 
-# --- 3. 목표 및 검색 ---
-target_col1, target_col2 = st.columns(2)
-criteria = target_col1.selectbox("기준 정시", ["2025학년도 정시", "2024학년도 정시"])
-target_univ = target_col2.text_input("목표 대학 그룹", value="SKY")
+st.divider()
 
-if st.button("🔍 분석 결과 확인", use_container_width=True):
-    # 계산 및 DB 조회 로직 (여기에 VBA 로직이 들어갈 예정)
-    st.success("데이터베이스 분석을 시작합니다.")
-    # (생략: 이전과 동일한 DB 호출 코드)
+# 2. 등급만 필요한 과목들
+st.markdown("**[등급 필수 과목]**")
+ec1, ec2 = st.columns(2)
+with ec1: eng = st.selectbox("🔤 영어 등급", list(range(1, 10)), index=0)
+with ec2: his = st.selectbox("🇰🇷 한국사 등급", list(range(1, 10)), index=0)
+
+user_scores = {
+    'kor': kor_s, 'kor_p': kor_p, 'kor_g': kor_g,
+    'mat': mat_s, 'mat_p': mat_p, 'mat_g': mat_g,
+    'inq1_s': inq1_s, 'inq1_p': inq1_p, 'inq1_g': inq1_g,
+    'inq2_s': inq2_s, 'inq2_p': inq2_p, 'inq2_g': inq2_g,
+    'foreign_s': for_s, 'foreign_p': for_p, 'foreign_g': for_g,
+    'eng': eng, 'his': his
+}
+
+st.divider()
+
+# --- 메인 하단: 대학 선택 및 결과 ---
+if target_table not in engine.tables:
+    st.error(f"⚠️ {target_table} 데이터를 로드할 수 없습니다.")
+else:
+    df = engine.tables[target_table]
+    
+    col_u, col_d = st.columns(2)
+    with col_u:
+        univ_col = '대학교명'
+        univ_list = sorted(df[univ_col].unique())
+        selected_univ = st.selectbox("🏫 대학교 선택", univ_list)
+    with col_d:
+        dept_col = '모집단위'
+        depts = df[df[univ_col] == selected_univ][dept_col].unique()
+        selected_dept = st.selectbox("📋 모집단위 선택", depts)
+
+    if st.button("🚀 내 점수 환산하기", use_container_width=True):
+        result = engine.calculate(selected_univ, selected_dept, user_scores, selection)
+        if result:
+            st.balloons()
+            st.success(f"## {selected_univ} [{selected_dept}] 환산점수: {result:,.2f} 점")
+            
+            # 작년 컷 정보 표시
+            target_row = df[(df[univ_col] == selected_univ) & (df[dept_col] == selected_dept)].iloc[0]
+            if '25총점_70_cut' in target_row:
+                st.info(f"💡 해당 학과 2025학년도 70% 합격 컷: **{target_row['25총점_70_cut']}점**")
